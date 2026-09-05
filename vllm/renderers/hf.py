@@ -27,6 +27,7 @@ from vllm.entrypoints.chat_utils import (
     parse_chat_messages,
     parse_chat_messages_async,
 )
+from vllm.exceptions import VLLMValidationError
 from vllm.inputs import EmbedsPrompt
 from vllm.inputs.engine import MultiModalInput
 from vllm.logger import init_logger
@@ -590,6 +591,18 @@ def resolve_chat_template_content_format(
             "Detected the chat template content format to be '%s'. "
             "You can set `--chat-template-content-format` to override this.",
             detected_format,
+        )
+    elif given_format == "openai" and detected_format == "string":
+        raise VLLMValidationError(
+            "`--chat-template-content-format openai` cannot be used with this "
+            "model's chat template, which only supports string content "
+            f"(detected format: '{detected_format}'). OpenAI-style content "
+            "parts (list of dicts) are not supported by this template and "
+            "would fail at render time. Remove the flag (or set "
+            "`--chat-template-content-format auto`) so that the content format "
+            "is detected automatically, or provide a chat template that "
+            "supports OpenAI-style content parts.",
+            parameter="chat_template_content_format",
         )
     elif given_format != detected_format:
         logger.warning_once(

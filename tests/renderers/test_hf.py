@@ -534,6 +534,88 @@ def test_resolve_content_format_examples(template_path, expected_format):
 
 
 @pytest.mark.parametrize(
+    "template_path",
+    [
+        "template_alpaca.jinja",
+        "template_chatglm.jinja",
+        "template_chatml.jinja",
+    ],
+)
+def test_resolve_content_format_forced_openai_rejected_for_string_template(
+    template_path,
+):
+    """Forcing `--chat-template-content-format openai` on a chat template that
+    only supports string content must be rejected up front with a clear error,
+    instead of failing with a cryptic Jinja2 error for every request (see
+    https://github.com/vllm-project/vllm/issues/54491)."""
+    model = "Qwen/Qwen2-VL-2B-Instruct"  # Dummy
+    model_config = ModelConfig(
+        model,
+        tokenizer=model,
+        trust_remote_code=True,
+    )
+
+    dummy_tokenizer = get_tokenizer(
+        model,
+        trust_remote_code=model_config.trust_remote_code,
+    )
+    dummy_tokenizer.chat_template = None
+
+    chat_template = load_chat_template(EXAMPLES_DIR / template_path)
+    assert isinstance(chat_template, str)
+
+    with pytest.raises(VLLMValidationError) as excinfo:
+        resolve_chat_template_content_format(
+            chat_template,
+            None,
+            "openai",
+            dummy_tokenizer,
+            model_config=model_config,
+        )
+
+    assert excinfo.value.parameter == "chat_template_content_format"
+    assert "chat-template-content-format" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "template_path",
+    [
+        "tool_chat_template_llama3.2_json.jinja",
+        "pooling/embed/template/dse_qwen2_vl.jinja",
+    ],
+)
+def test_resolve_content_format_forced_openai_accepted_for_openai_template(
+    template_path,
+):
+    """Forcing `--chat-template-content-format openai` stays valid for chat
+    templates that support OpenAI-style content parts."""
+    model = "Qwen/Qwen2-VL-2B-Instruct"  # Dummy
+    model_config = ModelConfig(
+        model,
+        tokenizer=model,
+        trust_remote_code=True,
+    )
+
+    dummy_tokenizer = get_tokenizer(
+        model,
+        trust_remote_code=model_config.trust_remote_code,
+    )
+    dummy_tokenizer.chat_template = None
+
+    chat_template = load_chat_template(EXAMPLES_DIR / template_path)
+    assert isinstance(chat_template, str)
+
+    resolved_format = resolve_chat_template_content_format(
+        chat_template,
+        None,
+        "openai",
+        dummy_tokenizer,
+        model_config=model_config,
+    )
+    assert resolved_format == "openai"
+
+
+@pytest.mark.parametrize(
     "model,template,add_generation_prompt,continue_final_message,expected_output",
     MODEL_TEMPLATE_GENERATION_OUTPUT,
 )

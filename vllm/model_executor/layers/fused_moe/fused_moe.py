@@ -1564,6 +1564,11 @@ def _prepare_expert_assignment(
             and block_shape is not None
             and block_shape[1] > 0
         )
+        # Disable naive block assignment on integrated/unified memory GPUs
+        # (e.g. GB10, GH200, DGX Spark, Jetson Orin) because even when weights
+        # are device-resident, the unified memory architecture means the naive
+        # path can cause unnecessary copies or suboptimal performance.
+        and not current_platform.is_integrated_gpu()
     )
 
     if naive_block_assignment:

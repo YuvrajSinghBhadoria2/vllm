@@ -53,7 +53,14 @@ def _cast_kv_tile(data, Q, tensor_scale, KV_QUANT_MODE: tl.constexpr):
     if KV_QUANT_MODE == 1:
         if Q.dtype.is_fp8():
             return data.to(Q.dtype)
-        return (data.to(tl.float32) * tl.load(tensor_scale)).to(Q.dtype)
+        # Load scale as a 1-element tensor and broadcast to data shape.
+        # This avoids tt.splat from tl.load(scalar) which blocks Triton's
+        # layout-conversion pass from hoisting dequantization before the
+        # dot-operand layout conversion, eliminating intermediate BF16
+        # shared-memory staging.
+        scale_1d = tl.load(tensor_scale + tl.arange(0, 1))
+        scale_tile = tl.broadcast_to(scale_1d.reshape((1, 1)), data.shape)
+        return (data.to(tl.float32) * scale_tile).to(Q.dtype)
     return data.to(Q.dtype)
 
 
@@ -978,6 +985,15 @@ def unified_attention(
         BLOCK_M = 32
         BLOCK_Q = BLOCK_M // num_queries_per_kv
         launch_num_warps = 8
+        launch_num_stages = 2
+
+    # For SM90 (H100) 2D kernels with head_size >= 512, reduce num_stages
+    # from default 3 to 2 to mitigate register pressure/spilling regression
+    # in 8/2 head-count configurations.
+    if (not use_3d
+        and head_size >= 512
+        and current_platform.is_device_capability(90)
+        and launch_num_stages is None):
         launch_num_stages = 2
 
     # Ideally we would launch with kernel with:
